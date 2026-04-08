@@ -21,7 +21,7 @@ interface AnalysisTask {
   error?: string;
 }
 
-const DEFAULT_MCP_COMMAND = ["npx", "-y", "gitnexus", "serve"];
+const DEFAULT_MCP_COMMAND = ["gitnexus", "mcp"];
 const DEFAULT_MAX_SIZE_MB = 100;
 
 // Store active analysis tasks
@@ -91,7 +91,7 @@ async function runAnalysisInBackground(
   console.log(`[opencode-gitnexus] Analysis started: ${taskId} for ${dir}`);
 
   try {
-    const result = await shell`npx -y gitnexus analyze`.cwd(dir).quiet().nothrow();
+    const result = await shell`gitnexus analyze`.cwd(dir).quiet().nothrow();
 
     if (result.exitCode === 0) {
       task.status = "completed";
