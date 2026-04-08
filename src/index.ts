@@ -168,11 +168,22 @@ Helpful usage:
 
 This protocol keeps code work grounded in repository intelligence.`;
 
+const SESSION_START_INSTRUCTION = `[SYSTEM — GitNexus Context Load]
+On session start, load GitNexus context by calling this tool directly:
+
+1. mcp_gitnexus_list_repos() — check which repos are indexed
+
+If repos are indexed, use GitNexus tools (query, context, impact) for code understanding.
+If no repos indexed, skip silently — GitNexus will auto-analyze when a source code repo is opened.
+Proceed with the user's request immediately.
+<!-- GITNEXUS -->`;
+
 const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOptions) => {
   const opts = (options ?? {}) as GitNexusPluginOptions;
   const mcpCommand = opts.mcpCommand ?? DEFAULT_MCP_COMMAND;
   const maxSizeMB = opts.autoAnalyzeMaxSizeMB ?? DEFAULT_MAX_SIZE_MB;
 
+  const sessionsSeen = new Set<string>();
   let updateResult: UpdateResult | null = null;
 
   // Auto-update check
@@ -234,6 +245,25 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
 
       if (currentAnalysisTaskId) {
         output.system.push(`[opencode-gitnexus] Auto-analyzing current repo. Check status with: gitnexus_check_analysis({"task_id": "${currentAnalysisTaskId}"})`);
+      }
+    },
+
+    "chat.message": async (
+      input: { sessionID: string; messageID?: string },
+      output: {
+        parts: Array<{
+          type: string;
+          text?: string;
+          [key: string]: unknown;
+        }>;
+      },
+    ) => {
+      if (sessionsSeen.has(input.sessionID)) return;
+      sessionsSeen.add(input.sessionID);
+
+      const firstTextPart = output.parts.find((p) => p.type === "text");
+      if (firstTextPart && "text" in firstTextPart) {
+        firstTextPart.text = `${SESSION_START_INSTRUCTION}\n\n${firstTextPart.text}`;
       }
     },
   };
