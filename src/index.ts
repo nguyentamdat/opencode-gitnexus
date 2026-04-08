@@ -239,5 +239,5 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
   };
 };
 
-export { DEFAULT_MCP_COMMAND, GITNEXUS_PROTOCOL, gitNexusPlugin as server };
+export { gitNexusPlugin as server };
 export default gitNexusPlugin;
