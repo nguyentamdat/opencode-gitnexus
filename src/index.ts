@@ -227,6 +227,15 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
       if (!opts.disableProtocol) {
         output.system.push(GITNEXUS_PROTOCOL);
         output.system.push(`[opencode-gitnexus] Plugin v${PLUGIN_VERSION} active.`);
+        // Show toast notification at session start
+        input.client?.tui?.showToast({
+          body: {
+            title: `GitNexus ${PLUGIN_VERSION}`,
+            message: "Code intelligence tools ready",
+            variant: "info" as const,
+            duration: 5000,
+          },
+        }).catch(() => {});
       }
       if (updateResult?.updated) {
         output.system.push(`[opencode-gitnexus] Updated ${updateResult.currentVersion} → ${updateResult.latestVersion}. Restart OpenCode to apply.`);
