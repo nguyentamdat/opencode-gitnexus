@@ -10,7 +10,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outdir dist --target bun --format esm && tsc -p tsconfig.build.json",
+    "build": "bun build src/index.ts --outdir dist --target node --format esm && tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",
     "test": "bun test"
   },
