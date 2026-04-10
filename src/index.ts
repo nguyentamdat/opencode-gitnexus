@@ -1,18 +1,29 @@
 import type { Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import { checkAndUpdate, type UpdateResult } from "./auto-update.js";
 import { existsSync } from "node:fs";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 
-// Debug logger
+// Debug logger - write immediately to ensure file exists
 const LOG_FILE = "/tmp/opencode-gitnexus.log";
+try {
+  writeFileSync(LOG_FILE, "", { flag: "a" }); // Ensure file exists
+} catch {}
+
 function log(level: string, message: string): void {
   const timestamp = new Date().toISOString();
   const entry = `[${timestamp}] [${level}] ${message}\n`;
   try {
     appendFileSync(LOG_FILE, entry);
   } catch {}
+}
+
+// IMMEDIATE test log at module load
+try {
+  log("INFO", "!!! MODULE LOADED - TOP LEVEL !!!");
+} catch (e) {
+  // If this fails, we can't log anything
 }
 
 const require = createRequire(import.meta.url);
