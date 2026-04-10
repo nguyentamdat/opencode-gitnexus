@@ -8,7 +8,7 @@ interface AnalysisTask {
     error?: string;
 }
 declare function isSourceCodeRepo(dir: string): boolean;
-declare function getDirSizeMB(dir: string): Promise<number>;
+declare function getDirSizeMB(dir: string, shell: PluginInput["$"]): Promise<number>;
 declare function runAnalysisInBackground(task: AnalysisTask, shell: PluginInput["$"]): Promise<void>;
 declare function autoAnalyzeRepo(dir: string, maxSizeMB: number, shell: PluginInput["$"]): Promise<string | null>;
 declare const gitNexusPlugin: Plugin;

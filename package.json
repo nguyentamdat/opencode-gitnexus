@@ -5,10 +5,6 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",
-  "files": [
-    "dist",
-    "README.md"
-  ],
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target bun --format esm && tsc -p tsconfig.build.json",
     "check": "tsc --noEmit",

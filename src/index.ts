@@ -63,13 +63,11 @@ function isSourceCodeRepo(dir: string): boolean {
   return false;
 }
 
-async function getDirSizeMB(dir: string): Promise<number> {
+async function getDirSizeMB(dir: string, shell: PluginInput["$"]): Promise<number> {
   try {
-    const proc = Bun.spawn({
-      cmd: ["du", "-sm", dir],
-      stdout: "pipe",
-    });
-    const output = await new Response(proc.stdout).text();
+    const result = await shell`du -sm ${dir}`.quiet().nothrow();
+    if (result.exitCode !== 0) return Infinity;
+    const output = result.stdout.toString();
     const size = parseInt(output.split("\t")[0] || "0", 10);
     return isNaN(size) ? Infinity : size;
   } catch {
@@ -118,7 +116,7 @@ async function autoAnalyzeRepo(
   if (!isSourceCodeRepo(dir)) return null;
 
   // Check size limit
-  const sizeMB = await getDirSizeMB(dir);
+  const sizeMB = await getDirSizeMB(dir, shell);
   if (sizeMB > maxSizeMB) {
     console.log(`[opencode-gitnexus] Repo too large (${sizeMB}MB > ${maxSizeMB}MB), skipping: ${dir}`);
     return null;
@@ -209,12 +207,20 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
     config: opts.disableMcp
       ? undefined
       : async (config) => {
-          if (!config.mcp) config.mcp = {};
-          if (!config.mcp.gitnexus) {
-            config.mcp.gitnexus = {
-              type: "local" as const,
-              command: mcpCommand,
-            };
+          try {
+            console.log("[opencode-gitnexus] Config hook called, disableMcp:", opts.disableMcp);
+            if (!config.mcp) config.mcp = {};
+            if (!config.mcp.gitnexus) {
+              config.mcp.gitnexus = {
+                type: "local" as const,
+                command: mcpCommand,
+              };
+              console.log("[opencode-gitnexus] GitNexus MCP registered:", mcpCommand);
+            } else {
+              console.log("[opencode-gitnexus] GitNexus MCP already exists");
+            }
+          } catch (err) {
+            console.error("[opencode-gitnexus] Failed to register MCP:", err);
           }
         },
 
