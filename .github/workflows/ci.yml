@@ -80,7 +80,21 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Check for NPM_TOKEN
+        id: check-token
+        run: |
+          if [ -z "${NPM_TOKEN}" ]; then
+            echo "has_token=false" >> $GITHUB_OUTPUT
+            echo "⚠️ NPM_TOKEN not set - skipping publish"
+          else
+            echo "has_token=true" >> $GITHUB_OUTPUT
+            echo "✓ NPM_TOKEN is configured"
+          fi
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
       - name: Configure npm authentication
+        if: steps.check-token.outputs.has_token == 'true'
         run: |
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
           npm whoami
@@ -88,6 +102,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish to npm
+        if: steps.check-token.outputs.has_token == 'true'
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
