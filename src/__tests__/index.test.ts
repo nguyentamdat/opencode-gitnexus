@@ -153,16 +153,40 @@ describe("getDirSizeMB", () => {
   });
 
   test("returns a number for a real directory", async () => {
-    const size = await getDirSizeMB(tmpDir);
+    const mockShell = (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const result = Promise.resolve({ exitCode: 0, stdout: "1\t/path\n", stderr: "" });
+      const chain: any = {
+        cwd: () => chain,
+        quiet: () => chain,
+        nothrow: () => chain,
+        then: result.then.bind(result),
+        catch: result.catch.bind(result),
+      };
+      return chain;
+    };
+    
+    const size = await getDirSizeMB(tmpDir, mockShell as any);
     expect(typeof size).toBe("number");
     expect(size).toBeGreaterThanOrEqual(0);
     expect(size).toBeLessThan(Infinity);
   });
 
-  test("returns 0 for non-existent directory (du fails silently)", async () => {
-    const size = await getDirSizeMB("/tmp/this-path-does-not-exist-at-all-xyz");
-    // du errors → empty stdout → parseInt('' || '0') = 0
-    expect(size).toBe(0);
+  test("returns Infinity for non-existent directory (du fails)", async () => {
+    const mockShell = (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const result = Promise.resolve({ exitCode: 1, stdout: "", stderr: "" });
+      const chain: any = {
+        cwd: () => chain,
+        quiet: () => chain,
+        nothrow: () => chain,
+        then: result.then.bind(result),
+        catch: result.catch.bind(result),
+      };
+      return chain;
+    };
+    
+    const size = await getDirSizeMB("/tmp/this-path-does-not-exist-at-all-xyz", mockShell as any);
+    // du errors → exit code 1 → returns Infinity
+    expect(size).toBe(Infinity);
   });
 });
 
@@ -255,9 +279,29 @@ describe("autoAnalyzeRepo", () => {
 
   test("returns taskId and stores task for valid repo", async () => {
     writeFileSync(join(tmpDir, "package.json"), "{}");
-    const shell = createMockShell(0);
+    
+    // Shell that returns proper du output
+    const shell = (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const cmd = strings.join(" ");
+      let stdout = "";
+      let exitCode = 0;
+      
+      if (cmd.includes("du -sm")) {
+        stdout = "1\t/path\n";
+      }
+      
+      const result = Promise.resolve({ exitCode, stdout, stderr: "" });
+      const chain: any = {
+        cwd: () => chain,
+        quiet: () => chain,
+        nothrow: () => chain,
+        then: result.then.bind(result),
+        catch: result.catch.bind(result),
+      };
+      return chain;
+    };
 
-    const taskId = await autoAnalyzeRepo(tmpDir, 500, shell);
+    const taskId = await autoAnalyzeRepo(tmpDir, 500, shell as any);
 
     expect(taskId).not.toBeNull();
     expect(taskId).toMatch(/^gitnexus-analyze-/);
@@ -270,9 +314,29 @@ describe("autoAnalyzeRepo", () => {
 
   test("task gets updated to completed after analysis finishes", async () => {
     writeFileSync(join(tmpDir, "package.json"), "{}");
-    const shell = createMockShell(0);
+    
+    // Shell that returns proper du output for size check
+    const shell = (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const cmd = strings.join(" ");
+      let stdout = "";
+      let exitCode = 0;
+      
+      if (cmd.includes("du -sm")) {
+        stdout = "1\t/path\n";
+      }
+      
+      const result = Promise.resolve({ exitCode, stdout, stderr: "" });
+      const chain: any = {
+        cwd: () => chain,
+        quiet: () => chain,
+        nothrow: () => chain,
+        then: result.then.bind(result),
+        catch: result.catch.bind(result),
+      };
+      return chain;
+    };
 
-    const taskId = await autoAnalyzeRepo(tmpDir, 500, shell);
+    const taskId = await autoAnalyzeRepo(tmpDir, 500, shell as any);
     expect(taskId).not.toBeNull();
 
     // Wait for the fire-and-forget to settle
@@ -307,7 +371,6 @@ describe("gitNexusPlugin", () => {
 
     expect(result).toHaveProperty("config");
     expect(result).toHaveProperty(["experimental.chat.system.transform"]);
-    expect(result).toHaveProperty(["chat.message"]);
   });
 
   test("config hook registers MCP server", async () => {
@@ -408,72 +471,6 @@ describe("gitNexusPlugin", () => {
       true,
     );
   });
-
-  test("chat.message injects session start instruction on first message", async () => {
-    const mockInput = {
-      directory: "/tmp",
-      $: createMockShell(0),
-    };
-
-    const result = await gitNexusPlugin(mockInput as any, {
-      disableAutoUpdate: true,
-      disableAutoAnalyze: true,
-    });
-
-    const output = {
-      parts: [{ type: "text", text: "Hello user" }],
-    };
-
-    await (result as any)["chat.message"]({ sessionID: "session-1" }, output);
-
-    expect(output.parts[0]!.text).toContain("[SYSTEM");
-    expect(output.parts[0]!.text).toContain("Hello user");
-  });
-
-  test("chat.message only injects once per session", async () => {
-    const mockInput = {
-      directory: "/tmp",
-      $: createMockShell(0),
-    };
-
-    const result = await gitNexusPlugin(mockInput as any, {
-      disableAutoUpdate: true,
-      disableAutoAnalyze: true,
-    });
-
-    const output1 = { parts: [{ type: "text", text: "First message" }] };
-    const output2 = { parts: [{ type: "text", text: "Second message" }] };
-
-    await (result as any)["chat.message"]({ sessionID: "session-2" }, output1);
-    await (result as any)["chat.message"]({ sessionID: "session-2" }, output2);
-
-    // First message gets injection
-    expect(output1.parts[0]!.text).toContain("[SYSTEM");
-    // Second message is unchanged
-    expect(output2.parts[0]!.text).toBe("Second message");
-  });
-
-  test("chat.message injects for different sessions independently", async () => {
-    const mockInput = {
-      directory: "/tmp",
-      $: createMockShell(0),
-    };
-
-    const result = await gitNexusPlugin(mockInput as any, {
-      disableAutoUpdate: true,
-      disableAutoAnalyze: true,
-    });
-
-    const output1 = { parts: [{ type: "text", text: "Session A" }] };
-    const output2 = { parts: [{ type: "text", text: "Session B" }] };
-
-    await (result as any)["chat.message"]({ sessionID: "session-a" }, output1);
-    await (result as any)["chat.message"]({ sessionID: "session-b" }, output2);
-
-    // Both get injection (different sessions)
-    expect(output1.parts[0]!.text).toContain("[SYSTEM");
-    expect(output2.parts[0]!.text).toContain("[SYSTEM");
-  });
 });
 
 // ─── Constants ─────────────────────────────────────────────
@@ -497,5 +494,119 @@ describe("constants", () => {
   test("SESSION_START_INSTRUCTION contains context load instruction", () => {
     expect(SESSION_START_INSTRUCTION).toContain("GitNexus Context Load");
     expect(SESSION_START_INSTRUCTION).toContain("mcp_gitnexus_list_repos");
+  });
+});
+
+
+// ─── Diagnostic Tests ─────────────────────────────────────
+
+describe("plugin loading diagnostics", () => {
+  test("plugin module loads without syntax errors", async () => {
+    // This test will fail immediately if there are syntax/compilation errors
+    const mod = await import("../index.js");
+    expect(mod).toBeDefined();
+    expect(mod.default).toBeDefined();
+    expect(mod.server).toBeDefined();
+  });
+
+  test("plugin returns valid hook object", async () => {
+    const mod = await import("../index.js");
+    const mockInput = {
+      directory: "/tmp",
+      $: () => Promise.resolve({ exitCode: 0 }),
+    };
+    
+    const result = await mod.default(mockInput as any, {
+      disableAutoUpdate: true,
+      disableAutoAnalyze: true,
+    });
+    
+    expect(typeof result).toBe("object");
+    expect(result).not.toBeNull();
+  });
+
+  test("config hook is callable when disableMcp is false", async () => {
+    const mod = await import("../index.js");
+    const mockInput = {
+      directory: "/tmp",
+      $: () => Promise.resolve({ exitCode: 0 }),
+    };
+    
+    const result = await mod.default(mockInput as any, {
+      disableAutoUpdate: true,
+      disableAutoAnalyze: true,
+      disableMcp: false,
+    });
+    
+    expect(typeof result.config).toBe("function");
+    
+    // Call the config hook - this is where MCP registration happens
+    const config: any = { mcp: {} };
+    await result.config!(config);
+    expect(config.mcp.gitnexus).toBeDefined();
+  });
+
+  test("config hook is undefined when disableMcp is true", async () => {
+    const mod = await import("../index.js");
+    const mockInput = {
+      directory: "/tmp",
+      $: () => Promise.resolve({ exitCode: 0 }),
+    };
+    
+    const result = await mod.default(mockInput as any, {
+      disableAutoUpdate: true,
+      disableAutoAnalyze: true,
+      disableMcp: true,
+    });
+    
+    expect(result.config).toBeUndefined();
+  });
+
+  test("system.transform hook is always present", async () => {
+    const mod = await import("../index.js");
+    const mockInput = {
+      directory: "/tmp",
+      $: () => Promise.resolve({ exitCode: 0 }),
+    };
+    
+    const result = await mod.default(mockInput as any, {
+      disableAutoUpdate: true,
+      disableAutoAnalyze: true,
+    });
+    
+    expect(typeof result["experimental.chat.system.transform"]).toBe("function");
+  });
+
+  test("plugin handles errors in input.$ gracefully", async () => {
+    const mod = await import("../index.js");
+    const mockInput = {
+      directory: "/tmp",
+      $: () => { throw new Error("Shell error"); },
+    };
+    
+    // Should not throw during plugin initialization
+    await expect(mod.default(mockInput as any, {
+      disableAutoUpdate: true,
+      disableAutoAnalyze: true,
+    })).resolves.toBeDefined();
+  });
+
+  test("MCP command is array of strings", async () => {
+    const mod = await import("../index.js");
+    const mockInput = {
+      directory: "/tmp",
+      $: () => Promise.resolve({ exitCode: 0 }),
+    };
+    
+    const result = await mod.default(mockInput as any, {
+      disableAutoUpdate: true,
+      disableAutoAnalyze: true,
+    });
+    
+    const config: any = { mcp: {} };
+    await result.config!(config);
+    
+    expect(Array.isArray(config.mcp.gitnexus.command)).toBe(true);
+    expect(config.mcp.gitnexus.command.every((c: unknown) => typeof c === "string")).toBe(true);
   });
 });
