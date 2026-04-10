@@ -7,8 +7,8 @@ import {
   FileLogSink,
   ConsoleLogSink,
   createLogger,
-  LogLevel,
-  LogEntry,
+  type LogLevel,
+  type LogEntry,
 } from "../logger.js";
 
 describe("FileLogSink", () => {
@@ -154,7 +154,7 @@ describe("Logger", () => {
   test("logs at appropriate levels", () => {
     const entries: LogEntry[] = [];
     const mockSink = {
-      write: (entry: LogEntry) => entries.push(entry),
+      write: (entry: LogEntry) => { entries.push(entry); },
     };
 
     const logger = new Logger({ minLevel: "debug" });
@@ -166,16 +166,20 @@ describe("Logger", () => {
     logger.error("Error message");
 
     expect(entries).toHaveLength(4);
-    expect(entries[0].level).toBe("debug");
-    expect(entries[1].level).toBe("info");
-    expect(entries[2].level).toBe("warn");
-    expect(entries[3].level).toBe("error");
+    expect(entries[0]!.level).toBe("debug");
+    expect(entries[1]!.level).toBe("info");
+    expect(entries[2]!.level).toBe("warn");
+    expect(entries[3]!.level).toBe("error");
+    expect(entries[0]!.level).toBe("debug");
+    expect(entries[1]!.level).toBe("info");
+    expect(entries[2]!.level).toBe("warn");
+    expect(entries[3]!.level).toBe("error");
   });
 
   test("respects minLevel setting", () => {
     const entries: LogEntry[] = [];
     const mockSink = {
-      write: (entry: LogEntry) => entries.push(entry),
+      write: (entry: LogEntry) => { entries.push(entry); },
     };
 
     const logger = new Logger({ minLevel: "warn" });
@@ -187,14 +191,14 @@ describe("Logger", () => {
     logger.error("Error");
 
     expect(entries).toHaveLength(2);
-    expect(entries[0].level).toBe("warn");
-    expect(entries[1].level).toBe("error");
+    expect(entries[0]!.level).toBe("warn");
+    expect(entries[1]!.level).toBe("error");
   });
 
   test("can change minLevel after creation", () => {
     const entries: LogEntry[] = [];
     const mockSink = {
-      write: (entry: LogEntry) => entries.push(entry),
+      write: (entry: LogEntry) => { entries.push(entry); },
     };
 
     const logger = new Logger({ minLevel: "error" });
@@ -213,15 +217,15 @@ describe("Logger", () => {
     const sink2Entries: LogEntry[] = [];
 
     const logger = new Logger({ minLevel: "info" });
-    logger.addSink({ write: (e) => sink1Entries.push(e) });
-    logger.addSink({ write: (e) => sink2Entries.push(e) });
+    logger.addSink({ write: (e) => { sink1Entries.push(e); } });
+    logger.addSink({ write: (e) => { sink2Entries.push(e); } });
 
     logger.info("Test");
 
     expect(sink1Entries).toHaveLength(1);
     expect(sink2Entries).toHaveLength(1);
-    expect(sink1Entries[0].message).toBe("Test");
-    expect(sink2Entries[0].message).toBe("Test");
+    expect(sink1Entries[0]!.message).toBe("Test");
+    expect(sink2Entries[0]!.message).toBe("Test");
   });
 
   test("handles sink errors gracefully", () => {
@@ -239,24 +243,24 @@ describe("Logger", () => {
   test("includes context in log entry", () => {
     const entries: LogEntry[] = [];
     const logger = new Logger({ minLevel: "info" });
-    logger.addSink({ write: (e) => entries.push(e) });
+    logger.addSink({ write: (e) => { entries.push(e); } });
 
     logger.info("Message with context", { userId: 456, requestId: "abc" });
 
-    expect(entries[0].context).toEqual({ userId: 456, requestId: "abc" });
+    expect(entries[0]!.context).toEqual({ userId: 456, requestId: "abc" });
   });
 
   test("includes error in log entry", () => {
     const entries: LogEntry[] = [];
     const logger = new Logger({ minLevel: "error" });
-    logger.addSink({ write: (e) => entries.push(e) });
+    logger.addSink({ write: (e) => { entries.push(e); } });
 
     const error = new Error("Something failed");
     logger.error("Operation failed", { operation: "test" }, error);
 
-    expect(entries[0].error?.message).toBe("Something failed");
-    expect(entries[0].error?.name).toBe("Error");
-    expect(entries[0].context).toEqual({ operation: "test" });
+    expect(entries[0]!.error?.message).toBe("Something failed");
+    expect(entries[0]!.error?.name).toBe("Error");
+    expect(entries[0]!.context).toEqual({ operation: "test" });
   });
 
   test("close calls close on all sinks", () => {
@@ -264,11 +268,11 @@ describe("Logger", () => {
     const logger = new Logger();
     logger.addSink({
       write: () => {},
-      close: () => closed.push("sink1"),
+      close: () => { closed.push("sink1"); },
     });
     logger.addSink({
       write: () => {},
-      close: () => closed.push("sink2"),
+      close: () => { closed.push("sink2"); },
     });
 
     logger.close();
@@ -322,7 +326,7 @@ describe("createLogger", () => {
 
     const entries: LogEntry[] = [];
     const mockSink = {
-      write: (e: LogEntry) => entries.push(e),
+      write: (e: LogEntry) => { entries.push(e); },
       close: () => {},
     };
 
@@ -347,9 +351,9 @@ describe("ConsoleLogSink", () => {
     const warns: string[] = [];
     const errors: string[] = [];
 
-    console.log = (...args) => logs.push(args.join(" "));
-    console.warn = (...args) => warns.push(args.join(" "));
-    console.error = (...args) => errors.push(args.join(" "));
+    console.log = (...args) => { logs.push(args.join(" ")); };
+    console.warn = (...args) => { warns.push(args.join(" ")); };
+    console.error = (...args) => { errors.push(args.join(" ")); };
 
     try {
       const sink = new ConsoleLogSink();
