@@ -7,7 +7,6 @@
   "type": "module",
   "files": [
     "dist",
-    ".claude-plugin",
     "README.md"
   ],
   "scripts": {

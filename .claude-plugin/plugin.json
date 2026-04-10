@@ -1,7 +1,0 @@
-{
-  "name": "opencode-gitnexus",
-  "version": "0.1.7",
-  "description": "GitNexus integration for code intelligence",
-  "main": "../dist/index.js",
-  "mcpServers": ".claude-plugin/mcp.json"
-}
