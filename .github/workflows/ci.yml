@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Type check
+        run: bun run check
+
+      - name: Run tests
+        run: bun test
+
+      - name: Build
+        run: bun run build
+
+      - name: Verify exports
+        run: |
+          timeout 5 node --input-type=module -e "
+            import mod from './dist/index.js';
+            console.log('✓ Default export:', typeof mod);
+            process.exit(0);
+          " || exit 1
+
+      - name: Test Node import doesn't hang
+        run: |
+          timeout 3 node --input-type=module -e "
+            import('./dist/index.js').then(() => process.exit(0));
+          "
+          echo "✓ Module imports without hanging"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Check formatting (prettier)
+        run: |
+          if [ -f .prettierrc ]; then
+            bunx prettier --check "src/**/*.ts"
+          else
+            echo "No prettier config, skipping"
+          fi
+
+      - name: Check linting (eslint)
+        run: |
+          if [ -f .eslintrc ]; then
+            bunx eslint "src/**/*.ts"
+          else
+            echo "No eslint config, skipping"
+          fi
