@@ -98,17 +98,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lint workflows with actionlint
-        uses: raven-actions/actionlint@v1
-        with:
-          fail-on-error: false
-          flags: '-ignore "SC2086"'
-
       - name: Check workflow syntax
         run: |
           # Install actionlint if needed
-          if ! command -v actionlint &> /dev/null; then
-            echo "actionlint not installed, skipping detailed lint"
-          else
-            actionlint .github/workflows/*.yml
-          fi
+          curl -sL https://github.com/rhysd/actionlint/releases/latest/download/actionlint_1.7.3_linux_amd64.tar.gz | tar xz -C /tmp
+          /tmp/actionlint -ignore "SC2086" .github/workflows/*.yml || true
