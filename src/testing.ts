@@ -9,6 +9,10 @@ import {
   DEFAULT_MCP_COMMAND,
   DEFAULT_MAX_SIZE_MB,
 } from "./core.js";
+import type { ILogger } from "./logger.js";
+
+// Re-export mock utilities for tests
+export { MockLogger, NoOpLogger } from "./test-utils.js";
 
 type ShellResult = {
   exitCode: number;
@@ -63,12 +67,22 @@ export async function runAnalysisInBackground(
   }
 }
 
-export async function autoAnalyzeRepo(dir: string, maxSizeMB: number, shell: MockShell): Promise<string | null> {
+export async function autoAnalyzeRepo(
+  dir: string,
+  maxSizeMB: number,
+  shell: MockShell,
+  logger?: ILogger
+): Promise<string | null> {
   if (existsSync(join(dir, ".gitnexus"))) return null;
   if (!isSourceCodeRepo(dir)) return null;
 
   const sizeMB = await getDirSizeMB(dir, shell);
-  if (sizeMB > maxSizeMB) return null;
+  if (sizeMB > maxSizeMB) {
+    logger?.info("Repo too large, skipping", { sizeMB, maxSizeMB, dir });
+    return null;
+  }
+
+  logger?.info("Auto-analyzing repo", { dir, sizeMB });
 
   const taskId = `gitnexus-analyze-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const task = {

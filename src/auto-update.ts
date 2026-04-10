@@ -2,10 +2,18 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as crypto from "crypto";
+import { CircuitBreaker, withRetry } from "./resilience.js";
+import { NetworkError, safeAsync, safeSync } from "./errors.js";
 
 const PACKAGE_NAME = "opencode-gitnexus";
 const NPM_REGISTRY_URL = `https://registry.npmjs.org/-/package/${PACKAGE_NAME}/dist-tags`;
-const NPM_FETCH_TIMEOUT = 5000;
+
+// Circuit breaker for NPM registry calls
+const npmCircuitBreaker = new CircuitBreaker({
+  failureThreshold: 3,
+  successThreshold: 2,
+  timeoutMs: 300000, // 5 minutes
+});
 
 function getOpenCodeCacheDir(): string {
   if (process.platform === "win32") {
@@ -48,22 +56,36 @@ function getCachedVersion(): string | null {
 }
 
 async function getLatestVersion(): Promise<string | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), NPM_FETCH_TIMEOUT);
+  return npmCircuitBreaker.execute(async () => {
+    return withRetry(
+      async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-  try {
-    const response = await fetch(NPM_REGISTRY_URL, {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) return null;
-    const data = (await response.json()) as Record<string, string>;
-    return data.latest ?? null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeoutId);
-  }
+        try {
+          const response = await fetch(NPM_REGISTRY_URL, {
+            signal: controller.signal,
+            headers: { Accept: "application/json" },
+          });
+
+          if (!response.ok) {
+            throw new NetworkError(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          const data = (await response.json()) as Record<string, string>;
+          return data.latest ?? null;
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      },
+      {
+        maxAttempts: 3,
+        initialDelayMs: 1000,
+        maxDelayMs: 10000,
+        backoffMultiplier: 2,
+      }
+    );
+  });
 }
 
 function stripTrailingCommas(json: string): string {
@@ -79,12 +101,17 @@ function invalidatePackage(): boolean {
 
   let removed = false;
   for (const dir of pkgDirs) {
-    try {
-      if (fs.existsSync(dir)) {
-        fs.rmSync(dir, { recursive: true, force: true });
-        removed = true;
-      }
-    } catch {}
+    removed = safeSync(
+      () => {
+        if (fs.existsSync(dir)) {
+          fs.rmSync(dir, { recursive: true, force: true });
+          return true;
+        }
+        return false;
+      },
+      false,
+      (err) => console.warn(`Failed to remove ${dir}:`, err.message)
+    ) || removed;
   }
 
   for (const baseDir of [CACHE_DIR, path.join(CACHE_DIR, `${PACKAGE_NAME}@latest`)]) {
@@ -92,20 +119,29 @@ function invalidatePackage(): boolean {
     const binaryLock = path.join(baseDir, "bun.lockb");
 
     if (fs.existsSync(textLock)) {
-      try {
-        const content = fs.readFileSync(textLock, "utf-8");
-        const lock = JSON.parse(stripTrailingCommas(content));
-        if (lock.packages?.[PACKAGE_NAME]) {
-          delete lock.packages[PACKAGE_NAME];
-          fs.writeFileSync(textLock, JSON.stringify(lock, null, 2));
-          removed = true;
-        }
-      } catch {}
+      const updated = safeSync(
+        () => {
+          const content = fs.readFileSync(textLock, "utf-8");
+          const lock = JSON.parse(stripTrailingCommas(content));
+          if (lock.packages?.[PACKAGE_NAME]) {
+            delete lock.packages[PACKAGE_NAME];
+            fs.writeFileSync(textLock, JSON.stringify(lock, null, 2));
+            return true;
+          }
+          return false;
+        },
+        false
+      );
+      removed = removed || updated;
     } else if (fs.existsSync(binaryLock)) {
-      try {
-        fs.unlinkSync(binaryLock);
-        removed = true;
-      } catch {}
+      const unlinked = safeSync(
+        () => {
+          fs.unlinkSync(binaryLock);
+          return true;
+        },
+        false
+      );
+      removed = removed || unlinked;
     }
   }
 
@@ -113,7 +149,7 @@ function invalidatePackage(): boolean {
 }
 
 function syncCachePackageJson(pkgJsonPath: string): boolean {
-  try {
+  return safeSync(() => {
     if (!fs.existsSync(pkgJsonPath)) {
       fs.mkdirSync(path.dirname(pkgJsonPath), { recursive: true });
       fs.writeFileSync(pkgJsonPath, JSON.stringify({ dependencies: { [PACKAGE_NAME]: "latest" } }, null, 2));
@@ -130,9 +166,7 @@ function syncCachePackageJson(pkgJsonPath: string): boolean {
     fs.writeFileSync(tmpPath, JSON.stringify(pkg, null, 2));
     fs.renameSync(tmpPath, pkgJsonPath);
     return true;
-  } catch {
-    return false;
-  }
+  }, false);
 }
 
 function resolveActiveWorkspace(): string {
@@ -152,36 +186,61 @@ export interface UpdateResult {
   error?: string;
 }
 
-export async function checkAndUpdate(runInstall: (cwd: string) => Promise<boolean>): Promise<UpdateResult> {
+export async function checkAndUpdate(
+  runInstall: (cwd: string) => Promise<boolean>,
+  onLog?: (level: "info" | "warn" | "error", message: string, context?: Record<string, unknown>) => void
+): Promise<UpdateResult> {
   const currentVersion = getCachedVersion();
   const latestVersion = await getLatestVersion();
 
+  // Log version check results
+  onLog?.("info", "Version check", { currentVersion, latestVersion });
+
   if (!currentVersion || !latestVersion) {
-    return { currentVersion, latestVersion, updated: false };
+    return { currentVersion, latestVersion, updated: false, error: "Failed to detect versions" };
   }
 
   if (currentVersion === latestVersion) {
     return { currentVersion, latestVersion, updated: false };
   }
 
+  onLog?.("info", `Update available: ${currentVersion} → ${latestVersion}`);
+
   try {
+    // Sync package.json files
     syncCachePackageJson(path.join(CACHE_DIR, "package.json"));
     const atLatestDir = path.join(CACHE_DIR, `${PACKAGE_NAME}@latest`);
     if (fs.existsSync(atLatestDir)) {
       syncCachePackageJson(path.join(atLatestDir, "package.json"));
     }
 
-    invalidatePackage();
+    // Invalidate old package
+    const invalidated = invalidatePackage();
+    onLog?.("info", `Package invalidated: ${invalidated}`);
 
+    // Run install
     const activeWorkspace = resolveActiveWorkspace();
+    onLog?.("info", `Running install in ${activeWorkspace}`);
+
     const success = await runInstall(activeWorkspace);
 
     if (success) {
+      onLog?.("info", "Install succeeded, syncing additional workspaces");
+
+      // Sync additional workspaces
       if (activeWorkspace !== CACHE_DIR) {
-        await runInstall(CACHE_DIR).catch(() => {});
+        await safeAsync(
+          () => runInstall(CACHE_DIR),
+          false,
+          (err) => onLog?.("warn", "Cache workspace sync failed", { error: err.message })
+        );
       }
       if (activeWorkspace !== atLatestDir && fs.existsSync(path.join(atLatestDir, "package.json"))) {
-        await runInstall(atLatestDir).catch(() => {});
+        await safeAsync(
+          () => runInstall(atLatestDir),
+          false,
+          (err) => onLog?.("warn", "Latest workspace sync failed", { error: err.message })
+        );
       }
     }
 
@@ -192,11 +251,13 @@ export async function checkAndUpdate(runInstall: (cwd: string) => Promise<boolea
       error: success ? undefined : "bun install failed",
     };
   } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    onLog?.("error", "Update failed", { error });
     return {
       currentVersion,
       latestVersion,
       updated: false,
-      error: err instanceof Error ? err.message : String(err),
+      error,
     };
   }
 }

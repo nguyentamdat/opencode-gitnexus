@@ -1,8 +1,10 @@
 import type { Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import { checkAndUpdate, type UpdateResult } from "./auto-update.js";
-import { appendFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { runCommand } from "./spawn.js";
+import { Logger, createLogger } from "./logger.js";
 import {
   DEFAULT_MCP_COMMAND,
   DEFAULT_MAX_SIZE_MB,
@@ -12,35 +14,23 @@ import {
   autoAnalyzeRepo,
 } from "./core.js";
 
-// Debug logger - write immediately to ensure file exists
-const LOG_FILE = "/tmp/opencode-gitnexus.log";
-try {
-  writeFileSync(LOG_FILE, "", { flag: "a" }); // Ensure file exists
-} catch {}
-
-function log(level: string, message: string): void {
-  const timestamp = new Date().toISOString();
-  const entry = `[${timestamp}] [${level}] ${message}\n`;
-  try {
-    appendFileSync(LOG_FILE, entry);
-  } catch {}
-}
-
-// IMMEDIATE test log at module load
-try {
-  log("INFO", "!!! MODULE LOADED - TOP LEVEL !!!");
-} catch (e) {
-  // If this fails, we can't log anything
-}
-
+// Module version
 const require = createRequire(import.meta.url);
 const PLUGIN_VERSION: string = require("../package.json").version;
 
-// Module-level logging
-log("INFO", "=== PLUGIN MODULE LOADED ===");
-log("INFO", `Version: ${PLUGIN_VERSION}`);
-log("INFO", `Module URL: ${import.meta.url}`);
-log("INFO", "Exporting server and default...");
+// Lazy logger initialization - created on first use, not at module load
+let logger: Logger | null = null;
+function getLogger(): Logger {
+  if (!logger) {
+    const logPath = join(tmpdir(), "opencode-gitnexus.log");
+    logger = createLogger(logPath);
+    logger.info("=== PLUGIN MODULE LOADED ===", {
+      version: PLUGIN_VERSION,
+      moduleUrl: import.meta.url,
+    });
+  }
+  return logger;
+}
 
 interface GitNexusPluginOptions extends Record<string, unknown> {
   mcpCommand?: string[];
@@ -53,37 +43,53 @@ interface GitNexusPluginOptions extends Record<string, unknown> {
 
 const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOptions) => {
   try {
-    log("INFO", "Plugin function invoked");
+    getLogger().info("Plugin function invoked");
     const opts = (options ?? {}) as GitNexusPluginOptions;
     const mcpCommand = opts.mcpCommand ?? DEFAULT_MCP_COMMAND;
     const maxSizeMB = opts.autoAnalyzeMaxSizeMB ?? DEFAULT_MAX_SIZE_MB;
-    log("INFO", `Plugin options: disableMcp=${opts.disableMcp}, disableProtocol=${opts.disableProtocol}, directory=${input.directory}`);
+    getLogger().info("Plugin options", {
+      disableMcp: opts.disableMcp,
+      disableProtocol: opts.disableProtocol,
+      directory: input.directory,
+    });
 
     const sessionsSeen = new Set<string>();
     let updateResult: UpdateResult | null = null;
 
     // Auto-update check
     if (!opts.disableAutoUpdate) {
-      checkAndUpdate(async (cwd) => {
-        return await runCommand("bun", ["install"], { cwd, timeout: 30000 });
-      })
+      checkAndUpdate(
+        async (cwd) => {
+          return await runCommand("bun", ["install"], { cwd, timeout: 30000 });
+        },
+        (level, message, context) => getLogger()[level](message, context)
+      )
         .then((result) => {
           updateResult = result;
           if (result.updated) {
-            log("INFO", `Auto-updated: ${result.currentVersion} → ${result.latestVersion}. Restart to apply.`);
+            getLogger().info("Auto-updated", {
+              from: result.currentVersion,
+              to: result.latestVersion,
+            });
           } else if (result.error) {
-            log("INFO", `Update available: ${result.currentVersion} → ${result.latestVersion} (install failed: ${result.error})`);
+            getLogger().warn("Update available but install failed", {
+              from: result.currentVersion,
+              to: result.latestVersion,
+              error: result.error,
+            });
           }
         })
-        .catch(() => {});
+        .catch((err) => {
+          getLogger().error("Auto-update check failed", undefined, err instanceof Error ? err : new Error(String(err)));
+        });
     }
 
     // Auto-analyze current directory if enabled
     let currentAnalysisTaskId: string | null = null;
     if (!opts.disableAutoAnalyze && input.directory) {
-      currentAnalysisTaskId = await autoAnalyzeRepo(input.directory, maxSizeMB, log);
+      currentAnalysisTaskId = await autoAnalyzeRepo(input.directory, maxSizeMB, getLogger());
       if (currentAnalysisTaskId) {
-        log("INFO", `Analysis task: ${currentAnalysisTaskId}`);
+        getLogger().info("Analysis task created", { taskId: currentAnalysisTaskId });
       }
     }
 
@@ -92,19 +98,19 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
         ? undefined
         : async (config: any) => {
             try {
-              log("INFO", `Config hook called, disableMcp: ${opts.disableMcp}`);
+              getLogger().info("Config hook called", { disableMcp: opts.disableMcp });
               if (!config.mcp) config.mcp = {};
               if (!config.mcp.gitnexus) {
                 config.mcp.gitnexus = {
                   type: "local" as const,
                   command: mcpCommand,
                 };
-                log("INFO", `GitNexus MCP registered: ${JSON.stringify(mcpCommand)}`);
+                getLogger().info("GitNexus MCP registered", { command: mcpCommand });
               } else {
-                log("INFO", "GitNexus MCP already exists");
+                getLogger().info("GitNexus MCP already exists");
               }
             } catch (err) {
-              log("ERROR", `Failed to register MCP: ${err}`);
+              getLogger().error("Failed to register MCP", undefined, err instanceof Error ? err : new Error(String(err)));
             }
           },
 
@@ -144,10 +150,13 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
       }
     };
 
-    log("INFO", `Plugin returning hooks: config=${typeof result.config}, system.transform=${typeof result["experimental.chat.system.transform"]}`);
+    getLogger().info("Plugin returning hooks", {
+      config: typeof result.config,
+      systemTransform: typeof result["experimental.chat.system.transform"],
+    });
     return result;
   } catch (err) {
-    log("ERROR", `Plugin function threw error: ${err}`);
+    getLogger().error("Plugin function threw error", undefined, err instanceof Error ? err : new Error(String(err)));
     throw err;
   }
 };

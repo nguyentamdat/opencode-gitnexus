@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
 import { getDirSizeMB, runCommandWithOutput } from "./spawn.js";
+import type { ILogger } from "./logger.js";
+import { AnalysisError } from "./errors.js";
 
 const require = createRequire(import.meta.url);
 
@@ -55,9 +57,9 @@ export function isSourceCodeRepo(dir: string): boolean {
 
 export async function runAnalysisInBackground(
   task: AnalysisTask,
-  log: (level: string, message: string) => void,
+  logger: ILogger,
 ): Promise<void> {
-  log("INFO", `Analysis started: ${task.taskId} for ${task.dir}`);
+  logger.info("Analysis started", { taskId: task.taskId, dir: task.dir });
 
   try {
     const result = await runCommandWithOutput("npx", ["-y", "gitnexus", "analyze"], {
@@ -68,25 +70,26 @@ export async function runAnalysisInBackground(
     if (result.exitCode === 0) {
       task.status = "completed";
       task.completedAt = new Date().toISOString();
-      log("INFO", `Analysis complete: ${task.taskId}`);
+      logger.info("Analysis complete", { taskId: task.taskId });
     } else {
       task.status = "failed";
       task.error = `Exit code: ${result.exitCode}, stderr: ${result.stderr}`;
       task.completedAt = new Date().toISOString();
-      log("INFO", `Analysis failed: ${task.taskId} (exit ${result.exitCode})`);
+      logger.warn("Analysis failed", { taskId: task.taskId, exitCode: result.exitCode });
     }
   } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
     task.status = "failed";
-    task.error = String(error);
+    task.error = err.message;
     task.completedAt = new Date().toISOString();
-    log("ERROR", `Analysis error: ${task.taskId} (${error})`);
+    logger.error("Analysis error", { taskId: task.taskId }, err);
   }
 }
 
 export async function autoAnalyzeRepo(
   dir: string,
   maxSizeMB: number,
-  log: (level: string, message: string) => void,
+  logger: ILogger,
 ): Promise<string | null> {
   const gitnexusDir = join(dir, ".gitnexus");
 
@@ -95,11 +98,11 @@ export async function autoAnalyzeRepo(
 
   const sizeMB = await getDirSizeMB(dir);
   if (sizeMB > maxSizeMB) {
-    log("INFO", `Repo too large (${sizeMB}MB > ${maxSizeMB}MB), skipping: ${dir}`);
+    logger.info("Repo too large, skipping", { sizeMB, maxSizeMB, dir });
     return null;
   }
 
-  log("INFO", `Auto-analyzing repo: ${dir} (${sizeMB}MB)`);
+  logger.info("Auto-analyzing repo", { dir, sizeMB });
 
   const taskId = `gitnexus-analyze-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const task: AnalysisTask = {
@@ -110,7 +113,7 @@ export async function autoAnalyzeRepo(
   };
 
   analysisTasks.set(taskId, task);
-  runAnalysisInBackground(task, log);
+  runAnalysisInBackground(task, logger);
   return taskId;
 }
 
