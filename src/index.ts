@@ -75,39 +75,29 @@ async function getDirSizeMB(dir: string): Promise<number> {
 }
 
 async function runAnalysisInBackground(
-  dir: string,
+  task: AnalysisTask,
   shell: PluginInput["$"],
 ): Promise<void> {
-  const taskId = `gitnexus-analyze-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-
-  const task: AnalysisTask = {
-    taskId,
-    dir,
-    status: "running",
-    startedAt: new Date().toISOString(),
-  };
-
-  analysisTasks.set(taskId, task);
-  console.log(`[opencode-gitnexus] Analysis started: ${taskId} for ${dir}`);
+  console.log(`[opencode-gitnexus] Analysis started: ${task.taskId} for ${task.dir}`);
 
   try {
-    const result = await shell`npx -y gitnexus analyze`.cwd(dir).quiet().nothrow();
+    const result = await shell`npx -y gitnexus analyze`.cwd(task.dir).quiet().nothrow();
 
     if (result.exitCode === 0) {
       task.status = "completed";
       task.completedAt = new Date().toISOString();
-      console.log(`[opencode-gitnexus] Analysis complete: ${taskId}`);
+      console.log(`[opencode-gitnexus] Analysis complete: ${task.taskId}`);
     } else {
       task.status = "failed";
       task.error = `Exit code: ${result.exitCode}`;
       task.completedAt = new Date().toISOString();
-      console.log(`[opencode-gitnexus] Analysis failed: ${taskId} (exit ${result.exitCode})`);
+      console.log(`[opencode-gitnexus] Analysis failed: ${task.taskId} (exit ${result.exitCode})`);
     }
   } catch (error) {
     task.status = "failed";
     task.error = String(error);
     task.completedAt = new Date().toISOString();
-    console.log(`[opencode-gitnexus] Analysis error: ${taskId} (${error})`);
+    console.log(`[opencode-gitnexus] Analysis error: ${task.taskId} (${error})`);
   }
 }
 
@@ -146,25 +136,21 @@ async function autoAnalyzeRepo(
   analysisTasks.set(taskId, task);
 
   // Fire and forget - don't await
-  runAnalysisInBackground(dir, shell).then(() => {
-    // Task updated in the map by runAnalysisInBackground
-  });
+  runAnalysisInBackground(task, shell);
 
   return taskId;
 }
 
 const GITNEXUS_PROTOCOL = `IMPORTANT — GitNexus Integration Protocol:
 1. GitNexus provides code intelligence tools (query, context, impact) for understanding repositories.
-2. The plugin auto-analyzes source code repos when opened. Check analysis status with gitnexus_check_analysis.
-3. Use background_output tool with the task_id to check status of ongoing analyses.
-4. Prefer GitNexus tools for understanding code structure, dependencies, and impact analysis.
-5. Before making significant code changes, check impact with GitNexus to understand what might break.
+2. The plugin auto-analyzes source code repos when opened. Analysis status is shown in the system prompt.
+3. Prefer GitNexus tools for understanding code structure, dependencies, and impact analysis.
+4. Before making significant code changes, check impact with GitNexus to understand what might break.
 
 Helpful usage:
 - gitnexus_query: Search codebase with natural language
 - gitnexus_context: Get context about specific code locations
 - gitnexus_impact: Analyze impact of proposed changes
-- gitnexus_check_analysis: Check status of auto-analysis tasks
 
 This protocol keeps code work grounded in repository intelligence.`;
 
@@ -244,30 +230,33 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
       }
 
       if (currentAnalysisTaskId) {
-        output.system.push(`[opencode-gitnexus] Auto-analyzing current repo. Check status with: gitnexus_check_analysis({"task_id": "${currentAnalysisTaskId}"})`);
+        const analysisTask = analysisTasks.get(currentAnalysisTaskId);
+        if (analysisTask) {
+          if (analysisTask.status === "running") {
+            output.system.push(`[opencode-gitnexus] Auto-analyzing current repo (in progress). GitNexus tools will be available once analysis completes.`);
+          } else if (analysisTask.status === "completed") {
+            output.system.push(`[opencode-gitnexus] Auto-analysis complete. GitNexus tools are ready.`);
+          } else if (analysisTask.status === "failed") {
+            output.system.push(`[opencode-gitnexus] Auto-analysis failed: ${analysisTask.error ?? "unknown error"}. Run \`npx -y gitnexus analyze\` manually.`);
+          }
+        }
       }
-    },
-
-    "chat.message": async (
-      input: { sessionID: string; messageID?: string },
-      output: {
-        parts: Array<{
-          type: string;
-          text?: string;
-          [key: string]: unknown;
-        }>;
-      },
-    ) => {
-      if (sessionsSeen.has(input.sessionID)) return;
-      sessionsSeen.add(input.sessionID);
-
-      const firstTextPart = output.parts.find((p) => p.type === "text");
-      if (firstTextPart && "text" in firstTextPart) {
-        firstTextPart.text = `${SESSION_START_INSTRUCTION}\n\n${firstTextPart.text}`;
-      }
-    },
+    }
   };
 };
 
 export { gitNexusPlugin as server };
 export default gitNexusPlugin;
+
+// Internal exports for testing
+export const _testing = {
+  isSourceCodeRepo,
+  getDirSizeMB,
+  autoAnalyzeRepo,
+  runAnalysisInBackground,
+  analysisTasks,
+  GITNEXUS_PROTOCOL,
+  SESSION_START_INSTRUCTION,
+  DEFAULT_MCP_COMMAND,
+  DEFAULT_MAX_SIZE_MB,
+};

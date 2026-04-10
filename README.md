@@ -7,6 +7,7 @@ OpenCode plugin for GitNexus integration.
 - Auto-registers the GitNexus MCP server
 - Injects a GitNexus usage protocol into the system prompt
 - Runs a fire-and-forget auto-update check on init
+- Auto-analyzes source code repos on first open
 
 ## Install
 
@@ -30,6 +31,8 @@ npx -y gitnexus serve
 | `disableMcp` | `boolean` | `false` | Skip auto-registering GitNexus |
 | `disableProtocol` | `boolean` | `false` | Skip system prompt injection |
 | `disableAutoUpdate` | `boolean` | `false` | Skip update checks on init |
+| `disableAutoAnalyze` | `boolean` | `false` | Skip auto-analyzing repos on open |
+| `autoAnalyzeMaxSizeMB` | `number` | `100` | Max repo size (MB) for auto-analysis |
 
 ## Notes
 
