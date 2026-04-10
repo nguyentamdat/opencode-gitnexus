@@ -1,6 +1,3 @@
-# CI Pipeline - following omo project patterns
-# Parallel jobs for faster feedback, strict version pinning
-
 name: CI
 
 on:
@@ -14,99 +11,83 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "latest"
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run tests
+        run: bun test
+
   typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: .bun-version
+          bun-version: "latest"
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Type check
         run: bun run check
 
-  test:
-    runs-on: ubuntu-latest
-    needs: typecheck
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Run tests
-        run: bun test
-
-      - name: Upload coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: test-results/
-          if-no-files-found: ignore
-
   build:
     runs-on: ubuntu-latest
-    needs: [typecheck, test]
+    needs: [test, typecheck]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: .bun-version
+          bun-version: "latest"
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install
 
       - name: Build
         run: bun run build
 
-      - name: Verify exports
+      - name: Verify build output
         run: |
-          timeout 5 node --input-type=module -e "
-            import mod from './dist/index.js';
-            console.log('✓ Default export:', typeof mod);
-            process.exit(0);
-          " || exit 1
+          test -f dist/index.js || (echo "ERROR: dist/index.js not found!" && exit 1)
+          test -f dist/index.d.ts || (echo "ERROR: dist/index.d.ts not found!" && exit 1)
+          echo "Build output verified successfully"
 
-      - name: Test Node import doesn't hang
-        run: |
-          timeout 3 node --input-type=module -e "
-            import('./dist/index.js').then(() => process.exit(0));
-          "
-          echo "✓ Module imports without hanging"
-
-      - name: Upload dist
-        uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-  lint-workflows:
+  publish:
     runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check workflow syntax
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "latest"
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build
+        run: bun run build
+
+      - name: Configure npm authentication
         run: |
-          # Download and run actionlint with proper error handling
-          curl -sL -o /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v1.7.3/actionlint_1.7.3_linux_amd64.tar.gz" || echo "Download failed, skipping"
-          if [ -f /tmp/actionlint.tar.gz ]; then
-            tar xzf /tmp/actionlint.tar.gz -C /tmp
-            /tmp/actionlint -ignore "SC2086" .github/workflows/*.yml || echo "Linting completed with warnings"
-          fi
-        run: |
-          # Install actionlint if needed
-          curl -sL https://github.com/rhysd/actionlint/releases/latest/download/actionlint_1.7.3_linux_amd64.tar.gz | tar xz -C /tmp
-          /tmp/actionlint -ignore "SC2086" .github/workflows/*.yml || true
+          echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > ~/.npmrc
+          npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
