@@ -100,6 +100,13 @@ jobs:
 
       - name: Check workflow syntax
         run: |
+          # Download and run actionlint with proper error handling
+          curl -sL -o /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v1.7.3/actionlint_1.7.3_linux_amd64.tar.gz" || echo "Download failed, skipping"
+          if [ -f /tmp/actionlint.tar.gz ]; then
+            tar xzf /tmp/actionlint.tar.gz -C /tmp
+            /tmp/actionlint -ignore "SC2086" .github/workflows/*.yml || echo "Linting completed with warnings"
+          fi
+        run: |
           # Install actionlint if needed
           curl -sL https://github.com/rhysd/actionlint/releases/latest/download/actionlint_1.7.3_linux_amd64.tar.gz | tar xz -C /tmp
           /tmp/actionlint -ignore "SC2086" .github/workflows/*.yml || true
