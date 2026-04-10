@@ -1,6 +1,6 @@
 {
   "name": "opencode-gitnexus",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "OpenCode plugin for GitNexus integration — auto-registers the MCP server, injects the GitNexus protocol into the system prompt, and keeps the plugin updated",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
