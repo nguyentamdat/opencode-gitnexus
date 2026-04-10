@@ -98,10 +98,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lint workflows
-        uses: rlespinasse/github-slug-action@v4
+      - name: Lint workflows with actionlint
+        uses: raven-actions/actionlint@v1
         with:
-          slug-maxlength: 40
+          fail-on-error: false
+          flags: '-ignore "SC2086"'
 
       - name: Check workflow syntax
         run: |
