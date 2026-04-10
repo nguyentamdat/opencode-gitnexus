@@ -13,7 +13,6 @@ function log(level: string, message: string): void {
   try {
     appendFileSync(LOG_FILE, entry);
   } catch {}
-  console.log(`[opencode-gitnexus] ${message}`);
 }
 
 log("INFO", "Plugin module loaded");
@@ -93,7 +92,7 @@ async function runAnalysisInBackground(
   task: AnalysisTask,
   shell: PluginInput["$"],
 ): Promise<void> {
-  console.log(`[opencode-gitnexus] Analysis started: ${task.taskId} for ${task.dir}`);
+  log("INFO", `Analysis started: ${task.taskId} for ${task.dir}`);
 
   try {
     const result = await shell`npx -y gitnexus analyze`.cwd(task.dir).quiet().nothrow();
@@ -101,18 +100,18 @@ async function runAnalysisInBackground(
     if (result.exitCode === 0) {
       task.status = "completed";
       task.completedAt = new Date().toISOString();
-      console.log(`[opencode-gitnexus] Analysis complete: ${task.taskId}`);
+      log("INFO", `Analysis complete: ${task.taskId}`);
     } else {
       task.status = "failed";
       task.error = `Exit code: ${result.exitCode}`;
       task.completedAt = new Date().toISOString();
-      console.log(`[opencode-gitnexus] Analysis failed: ${task.taskId} (exit ${result.exitCode})`);
+      log("INFO", `Analysis failed: ${task.taskId} (exit ${result.exitCode})`);
     }
   } catch (error) {
     task.status = "failed";
     task.error = String(error);
     task.completedAt = new Date().toISOString();
-    console.log(`[opencode-gitnexus] Analysis error: ${task.taskId} (${error})`);
+    log("ERROR", `Analysis error: ${task.taskId} (${error})`);
   }
 }
 
@@ -132,11 +131,11 @@ async function autoAnalyzeRepo(
   // Check size limit
   const sizeMB = await getDirSizeMB(dir, shell);
   if (sizeMB > maxSizeMB) {
-    console.log(`[opencode-gitnexus] Repo too large (${sizeMB}MB > ${maxSizeMB}MB), skipping: ${dir}`);
+    log("INFO", `Repo too large (${sizeMB}MB > ${maxSizeMB}MB), skipping: ${dir}`);
     return null;
   }
 
-  console.log(`[opencode-gitnexus] Auto-analyzing repo: ${dir} (${sizeMB}MB)`);
+  log("INFO", `Auto-analyzing repo: ${dir} (${sizeMB}MB)`);
 
   // Start analysis in background
   const taskId = `gitnexus-analyze-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -203,9 +202,9 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
         .then((result) => {
           updateResult = result;
           if (result.updated) {
-            console.log(`[opencode-gitnexus] Auto-updated: ${result.currentVersion} → ${result.latestVersion}. Restart to apply.`);
+            log("INFO", `Auto-updated: ${result.currentVersion} → ${result.latestVersion}. Restart to apply.`);
           } else if (result.error) {
-            console.log(`[opencode-gitnexus] Update available: ${result.currentVersion} → ${result.latestVersion} (install failed: ${result.error})`);
+            log("INFO", `Update available: ${result.currentVersion} → ${result.latestVersion} (install failed: ${result.error})`);
           }
         })
         .catch(() => {});
@@ -216,7 +215,7 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
     if (!opts.disableAutoAnalyze && input.directory) {
       currentAnalysisTaskId = await autoAnalyzeRepo(input.directory, maxSizeMB, input.$);
       if (currentAnalysisTaskId) {
-        console.log(`[opencode-gitnexus] Analysis task: ${currentAnalysisTaskId}`);
+        log("INFO", `Analysis task: ${currentAnalysisTaskId}`);
       }
     }
 
