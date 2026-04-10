@@ -15,10 +15,14 @@ function log(level: string, message: string): void {
   } catch {}
 }
 
-log("INFO", "Plugin module loaded");
-
 const require = createRequire(import.meta.url);
 const PLUGIN_VERSION: string = require("../package.json").version;
+
+// Module-level logging
+log("INFO", "=== PLUGIN MODULE LOADED ===");
+log("INFO", `Version: ${PLUGIN_VERSION}`);
+log("INFO", `Module URL: ${import.meta.url}`);
+log("INFO", "Exporting server and default...");
 interface GitNexusPluginOptions extends Record<string, unknown> {
   mcpCommand?: string[];
   disableMcp?: boolean;
