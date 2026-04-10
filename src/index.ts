@@ -1,8 +1,22 @@
 import type { Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import { checkAndUpdate, type UpdateResult } from "./auto-update.js";
 import { existsSync } from "node:fs";
+import { appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+
+// Debug logger
+const LOG_FILE = "/tmp/opencode-gitnexus.log";
+function log(level: string, message: string): void {
+  const timestamp = new Date().toISOString();
+  const entry = `[${timestamp}] [${level}] ${message}\n`;
+  try {
+    appendFileSync(LOG_FILE, entry);
+  } catch {}
+  console.log(`[opencode-gitnexus] ${message}`);
+}
+
+log("INFO", "Plugin module loaded");
 
 const require = createRequire(import.meta.url);
 const PLUGIN_VERSION: string = require("../package.json").version;
@@ -166,9 +180,11 @@ Proceed with the user's request immediately.
 <!-- GITNEXUS -->`;
 
 const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOptions) => {
-  const opts = (options ?? {}) as GitNexusPluginOptions;
-  const mcpCommand = opts.mcpCommand ?? DEFAULT_MCP_COMMAND;
+  log("INFO", "Plugin function invoked");
+const opts = (options ?? {}) as GitNexusPluginOptions;
+const mcpCommand = opts.mcpCommand ?? DEFAULT_MCP_COMMAND;
   const maxSizeMB = opts.autoAnalyzeMaxSizeMB ?? DEFAULT_MAX_SIZE_MB;
+  log("INFO", `Plugin options: disableMcp=${opts.disableMcp}, disableProtocol=${opts.disableProtocol}, directory=${input.directory}`);
 
   const sessionsSeen = new Set<string>();
   let updateResult: UpdateResult | null = null;
@@ -208,19 +224,19 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
       ? undefined
       : async (config) => {
           try {
-            console.log("[opencode-gitnexus] Config hook called, disableMcp:", opts.disableMcp);
+            log("INFO", `Config hook called, disableMcp: ${opts.disableMcp}`);
             if (!config.mcp) config.mcp = {};
             if (!config.mcp.gitnexus) {
               config.mcp.gitnexus = {
                 type: "local" as const,
                 command: mcpCommand,
               };
-              console.log("[opencode-gitnexus] GitNexus MCP registered:", mcpCommand);
+              log("INFO", `GitNexus MCP registered: ${JSON.stringify(mcpCommand)}`);
             } else {
-              console.log("[opencode-gitnexus] GitNexus MCP already exists");
+              log("INFO", "GitNexus MCP already exists");
             }
           } catch (err) {
-            console.error("[opencode-gitnexus] Failed to register MCP:", err);
+            log("ERROR", `Failed to register MCP: ${err}`);
           }
         },
 
