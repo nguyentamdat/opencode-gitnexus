@@ -17,11 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lint workflows with actionlint
-        uses: raven-actions/actionlint@v1
-        with:
-          fail-on-error: false
-          flags: '-ignore "SC2086"'
+      - name: Download and run actionlint
+        run: |
+          curl -sL -o /tmp/actionlint.tar.gz "https://github.com/rhysd/actionlint/releases/download/v1.7.3/actionlint_1.7.3_linux_amd64.tar.gz"
+          tar xzf /tmp/actionlint.tar.gz -C /tmp
+          /tmp/actionlint -ignore "SC2086" .github/workflows/*.yml || echo "actionlint completed"
 
       - name: Check for common issues
         run: |
