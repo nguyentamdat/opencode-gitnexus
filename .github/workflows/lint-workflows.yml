@@ -1,0 +1,55 @@
+# Lint GitHub Actions workflows
+# Validates workflow syntax and best practices
+
+name: Lint Workflows
+
+on:
+  push:
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint workflows with actionlint
+        uses: raven-actions/actionlint@v1
+        with:
+          fail-on-error: false
+          flags: '-ignore "SC2086"'
+
+      - name: Check for common issues
+        run: |
+          # Check for common workflow issues
+          errors=0
+
+          # Check for 'latest' bun versions (should be pinned)
+          if grep -r "bun-version: latest" .github/workflows/; then
+            echo "⚠ Warning: Found 'bun-version: latest' - should use .bun-version file"
+            errors=$((errors + 1))
+          fi
+
+          # Check for setup-bun@v1 (should be v2)
+          if grep -r "uses: oven-sh/setup-bun@v1" .github/workflows/; then
+            echo "⚠ Warning: Found setup-bun@v1 - should use v2"
+            errors=$((errors + 1))
+          fi
+
+          # Check for missing concurrency settings
+          for file in .github/workflows/*.yml; do
+            if ! grep -q "concurrency:" "$file"; then
+              echo "⚠ Warning: $file missing concurrency settings"
+            fi
+          done
+
+          if [ $errors -gt 0 ]; then
+            echo "Found $errors workflow issues"
+            exit 1
+          fi
+
+          echo "✓ Workflow linting passed"

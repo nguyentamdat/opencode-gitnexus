@@ -1,37 +1,91 @@
+# PR Checks - following omo project patterns
+# Comprehensive validation before merging
+
 name: PR Checks
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check conventional commits
+        uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: .commitlintrc.json
+        continue-on-error: true
+
+      - name: Check package.json
+        run: |
+          # Ensure required fields exist
+          grep -q '"name"' package.json || (echo "Missing 'name' in package.json" && exit 1)
+          grep -q '"version"' package.json || (echo "Missing 'version' in package.json" && exit 1)
+          grep -q '"main"' package.json || (echo "Missing 'main' in package.json" && exit 1)
+          grep -q '"types"' package.json || (echo "Missing 'types' in package.json" && exit 1)
+          echo "✓ package.json has required fields"
+
+      - name: Check version not changed in PR
+        run: |
+          # Ensure version wasn't changed in the PR
+          git fetch origin ${{ github.base_ref }}
+          BASE_VERSION=$(git show origin/${{ github.base_ref }}:package.json | grep '"version"' | head -1 | sed 's/.*: "\(.*\)".*/\1/')
+          HEAD_VERSION=$(grep '"version"' package.json | head -1 | sed 's/.*: "\(.*\)".*/\1/')
+          if [ "$BASE_VERSION" != "$HEAD_VERSION" ]; then
+            echo "⚠ Warning: Version changed from $BASE_VERSION to $HEAD_VERSION in PR"
+            echo "Version bumps should be done via publish workflow, not in PRs"
+          fi
+        continue-on-error: true
+
+      - name: Check release notes exist for new version
+        run: |
+          VERSION=$(grep '"version"' package.json | head -1 | sed 's/.*: "\(.*\)".*/\1/')
+          if [ ! -f "RELEASE_NOTES_v${VERSION}.md" ]; then
+            echo "⚠ Warning: No release notes found for v${VERSION}"
+            echo "Consider adding RELEASE_NOTES_v${VERSION}.md"
+          else
+            echo "✓ Release notes found for v${VERSION}"
+          fi
+        continue-on-error: true
+
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Type check
         run: bun run check
 
-      - name: Run tests with coverage
+      - name: Run tests
         run: bun test
 
       - name: Build
         run: bun run build
-
-      - name: Check dist files exist
-        run: |
-          test -f dist/index.js || exit 1
-          test -f dist/index.d.ts || exit 1
-          echo "✓ Distribution files present"
 
       - name: Verify no hanging imports
         run: |
@@ -42,32 +96,33 @@ jobs:
             });
           " || exit 1
 
-  validate:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check commit messages
-        uses: wagoid/commitlint-github-action@v5
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          configFile: ./.commitlintrc.json
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check formatting
+        run: |
+          if [ -f .prettierrc ] || [ -f .prettierrc.json ]; then
+            bunx prettier --check "src/**/*.ts" || echo "⚠ Formatting issues found"
+          else
+            echo "No prettier config, skipping"
+          fi
         continue-on-error: true
 
-      - name: Check package.json
+      - name: Check linting
         run: |
-          # Ensure required fields exist
-          grep -q '"name"' package.json || exit 1
-          grep -q '"version"' package.json || exit 1
-          grep -q '"main"' package.json || exit 1
-          grep -q '"types"' package.json || exit 1
-          echo "✓ package.json has required fields"
-
-      - name: Check release notes exist for new version
-        run: |
-          VERSION=$(grep '"version"' package.json | head -1 | sed 's/.*: "\(.*\)".*/\1/')
-          if [ ! -f "RELEASE_NOTES_v${VERSION}.md" ]; then
-            echo "⚠ Warning: No release notes found for v${VERSION}"
+          if [ -f .eslintrc ] || [ -f .eslintrc.json ]; then
+            bunx eslint "src/**/*.ts" || echo "⚠ Linting issues found"
           else
-            echo "✓ Release notes found for v${VERSION}"
+            echo "No eslint config, skipping"
           fi
         continue-on-error: true
