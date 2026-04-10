@@ -2,7 +2,10 @@ import type { Plugin, PluginInput, PluginOptions } from "@opencode-ai/plugin";
 import { checkAndUpdate, type UpdateResult } from "./auto-update.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 
+const require = createRequire(import.meta.url);
+const PLUGIN_VERSION: string = require("../package.json").version;
 interface GitNexusPluginOptions extends Record<string, unknown> {
   mcpCommand?: string[];
   disableMcp?: boolean;
@@ -223,8 +226,8 @@ const gitNexusPlugin: Plugin = async (input: PluginInput, options?: PluginOption
     ) => {
       if (!opts.disableProtocol) {
         output.system.push(GITNEXUS_PROTOCOL);
+        output.system.push(`[opencode-gitnexus] Plugin v${PLUGIN_VERSION} active.`);
       }
-
       if (updateResult?.updated) {
         output.system.push(`[opencode-gitnexus] Updated ${updateResult.currentVersion} → ${updateResult.latestVersion}. Restart OpenCode to apply.`);
       }
@@ -259,4 +262,5 @@ export const _testing = {
   SESSION_START_INSTRUCTION,
   DEFAULT_MCP_COMMAND,
   DEFAULT_MAX_SIZE_MB,
+  PLUGIN_VERSION,
 };

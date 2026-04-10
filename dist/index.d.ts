@@ -24,4 +24,5 @@ export declare const _testing: {
     SESSION_START_INSTRUCTION: string;
     DEFAULT_MCP_COMMAND: string[];
     DEFAULT_MAX_SIZE_MB: number;
+    PLUGIN_VERSION: string;
 };
