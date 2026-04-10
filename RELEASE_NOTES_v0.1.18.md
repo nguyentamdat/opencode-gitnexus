@@ -1,60 +1,60 @@
 # v0.1.18 — Fixed OpenCode Plugin Loader Bug 🎉
 
-## Tóm tắt
+## Summary
 
-Phiên bản này sửa lỗi nghiêm trọng khiến plugin **không load được** trong OpenCode, gây ra lỗi:
+This version fixes a critical bug that prevented the plugin from loading in OpenCode, causing the error:
 
 ```
 Plugin export is not a function failed to load plugin
 ```
 
-## Vấn đề gì đã xảy ra?
+## What Happened?
 
 ### Root Cause
-OpenCode (và Claude Code) có một bug trong plugin loader: nó duyệt qua **tất cả exports** của module và kiểm tra xem có phải function không. Nếu gặp export không phải function (như object, constant), nó throw error ngay lập tức.
+OpenCode (and Claude Code) has a bug in its plugin loader: it iterates over **all exports** from the module and checks if they are functions. If it encounters any non-function export (like objects or constants), it throws an error immediately.
 
-Plugin `opencode-gitnexus` v0.1.17 export thêm `_testing` (một object chứa test helpers), và điều này khiến loader crash:
+Plugin `opencode-gitnexus` v0.1.17 exported an additional `_testing` (an object containing test helpers), which caused the loader to crash:
 
 ```typescript
-// src/index.ts (v0.1.17) - BỊ LỖI
+// src/index.ts (v0.1.17) - BROKEN
 export { gitNexusPlugin as server };
 export default gitNexusPlugin;
-export const _testing = { ... }; // ← Lỗi! Object không phải function
+export const _testing = { ... }; // ← Error! Object is not a function
 ```
 
-### Tại sao lỗi này khó phát hiện?
-1. **Module load thành công** — log hiện "MODULE LOADED"
-2. **Nhưng plugin function không bao giờ được gọi** — thiếu log "Plugin function invoked"
-3. **MCP server không bao giờ register** — GitNexus tools không xuất hiện trong MCP panel
-4. **OpenCode cache npm package** — load bản 0.1.17 cũ thay vì build local mới
+### Why Was This Bug Hard to Detect?
+1. **Module loaded successfully** — log showed "MODULE LOADED"
+2. **But plugin function was never called** — missing "Plugin function invoked" log
+3. **MCP server never registered** — GitNexus tools didn't appear in MCP panel
+4. **OpenCode caches npm packages** — loaded old v0.1.17 instead of new local build
 
-## Giải pháp
+## Solution
 
-### 1. Tách non-plugin exports ra khỏi entrypoint
+### 1. Separate Non-Plugin Exports from Entrypoint
 
 ```typescript
-// src/index.ts (v0.1.18) - ĐÃ SỬA ✅
+// src/index.ts (v0.1.18) - FIXED ✅
 export { gitNexusPlugin as server };
 export default gitNexusPlugin;
-// Không còn _testing ở đây nữa!
+// No more _testing here!
 ```
 
-### 2. Tạo module riêng cho test helpers
+### 2. Create Dedicated Module for Test Helpers
 
 ```typescript
-// src/core.ts — Core logic và constants
+// src/core.ts — Core logic and constants
 export { isSourceCodeRepo, autoAnalyzeRepo, ... };
 
 // src/testing.ts — Test-only exports  
 export { _testing } from './core';
 ```
 
-### 3. Cập nhật cache OpenCode
+### 3. Update OpenCode Cache
 
-Vì OpenCode cache npm package trong `~/.cache/opencode/packages/`, cần manual update:
+Since OpenCode caches npm packages in `~/.cache/opencode/packages/`, manual update needed:
 
 ```bash
-# Copy build mới vào cache
+# Copy new build to cache
 cp -r ./dist/* ~/.cache/opencode/packages/opencode-gitnexus@latest/node_modules/opencode-gitnexus/dist/
 cp package.json ~/.cache/opencode/packages/opencode-gitnexus@latest/node_modules/opencode-gitnexus/
 
@@ -63,11 +63,11 @@ cp package.json ~/.cache/opencode/packages/opencode-gitnexus@latest/node_modules
 
 ## Verification ✅
 
-Sau khi apply fix:
+After applying the fix:
 
 ```bash
 $ node -e "import('./dist/index.js').then(m=>console.log(Object.keys(m)))"
-[ 'default', 'server' ]  ← Chỉ có 2 function exports ✅
+[ 'default', 'server' ]  ← Only 2 function exports ✅
 
 $ cat /tmp/opencode-gitnexus.log | tail -3
 Plugin function invoked
@@ -77,11 +77,11 @@ GitNexus MCP registered: ["npx","-y","gitnexus","mcp"]  ✅
 
 ## Breaking Changes
 
-**Không có** — tất cả public APIs giữ nguyên. Chỉ internal test structure thay đổi.
+**None** — all public APIs remain unchanged. Only internal test structure changed.
 
 ## Upgrade Guide
 
-### Cho users
+### For Users
 
 ```bash
 # 1. Update plugin
@@ -93,7 +93,7 @@ rm -rf ~/.cache/opencode/packages/opencode-gitnexus@latest
 # 3. Restart OpenCode server
 ```
 
-### Cho developers
+### For Developers
 
 ```bash
 # Clone repo
@@ -104,22 +104,22 @@ cd opencode-gitnexus
 bun install
 bun run build
 
-# Copy vào OpenCode cache (dev mode)
+# Copy to OpenCode cache (dev mode)
 cp -r dist/* ~/.cache/opencode/packages/opencode-gitnexus@latest/node_modules/opencode-gitnexus/dist/
 ```
 
-## Cảm ơn
+## Thanks
 
-- **OpenCode Community** — báo cáo lỗi và giúp reproduce
-- **Claude** — giúp analyze và fix
-- **Bun** — build tools tuyệt vời
+- **OpenCode Community** — for reporting and helping reproduce the bug
+- **Claude** — for analysis and fix
+- **Bun** — for excellent build tools
 
 ---
 
 **Full Changelog**: https://github.com/nguyentamdat/opencode-gitnexus/compare/v0.1.17...v0.1.18
 
 **Issues fixed**:
-- Fixes plugin loader crash với non-function exports
-- Fixes MCP registration không chạy
+- Fixes plugin loader crash with non-function exports
+- Fixes MCP registration not running
 
 **Commit**: `v0.1.18`
